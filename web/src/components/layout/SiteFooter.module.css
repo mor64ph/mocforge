@@ -1,0 +1,36 @@
+.footer {
+  margin-top: var(--space-10);
+  border-top: 1px solid var(--color-border-subtle);
+  background-color: var(--color-sunken);
+}
+
+.inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: var(--measure-page);
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-5);
+}
+
+.heading {
+  color: var(--color-ink-subtle);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.attribution {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 52rem;
+  color: var(--color-ink-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.disclaimer {
+  color: var(--color-ink);
+}

@@ -1,0 +1,72 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.status {
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  color: var(--color-ink-muted);
+  font-size: var(--text-xs);
+}
+
+.metaValue {
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.emptyLead {
+  max-width: var(--measure-prose);
+  font-size: var(--text-base);
+}
+
+.emptyHelp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: var(--measure-prose);
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+}
+
+.helpItem {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.helpItem::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0.25rem;
+  height: 0.25rem;
+  margin-top: 0.5rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--color-border-control);
+}

@@ -1,0 +1,9 @@
+data/api/key.txt
+data/raw/
+data/ldraw/
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+.pytest_cache/
+out/

@@ -1,0 +1,46 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+}
+
+.skeletonGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-5) var(--space-4);
+}
+
+.skeletonStat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.bone {
+  height: 0.75rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-sunken);
+}
+
+.boneWide {
+  height: 1.75rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-sunken);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bone,
+  .boneWide {
+    animation: pulse 1.6s var(--ease-out) infinite;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}

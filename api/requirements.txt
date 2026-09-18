@@ -1,0 +1,29 @@
+# MOCForge HTTP API service.
+#
+# Lower bounds are the versions this was built and tested against; upper bounds
+# stop a major release changing idioms underneath the service. The generation
+# engine at the repository root needs nothing beyond the drawing and document
+# packages below, so this is the whole runtime dependency set.
+fastapi>=0.136,<1.0
+uvicorn>=0.48,<1.0
+pydantic>=2.13,<3.0
+
+# The download pack (export.py). Pillow is already required by render.py, which
+# draws the step images; reportlab writes the instruction PDF around them. It
+# earns the dependency by keeping the document's text as text - selectable,
+# searchable and sharp at any print size - where the alternative already in the
+# tree, Pillow's own PDF writer, can only emit a raster of each page and would
+# ship every part name as pixels.
+pillow>=11.0
+reportlab>=4.2,<6.0
+
+# Tests only. httpx is what fastapi.testclient.TestClient is implemented on;
+# it was the one package not already installed in this environment.
+pytest>=9.1
+httpx>=0.28
+
+# Reads the generated PDF back in tests/test_export.py. Without it a test can
+# assert the file is a PDF and nothing about what it says, and "the attribution
+# is in the document" is precisely the claim that has to be checked rather than
+# assumed.
+pypdf>=5.0

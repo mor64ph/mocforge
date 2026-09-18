@@ -1,0 +1,94 @@
+/* MOCForge design tokens — the single source of truth for every visual value.
+   Components reference these variables only; no component defines a raw colour,
+   spacing step, radius or type size of its own. */
+
+:root {
+  /* ---------------------------------------------------------------- colour
+     A warm neutral ground with one accent. Every text/background pair used in
+     the UI is >= 4.5:1; control borders are >= 3:1 (WCAG 1.4.11). */
+  --color-paper: #fbfaf8;        /* page ground */
+  --color-surface: #ffffff;      /* raised panels */
+  --color-sunken: #f3f1ec;       /* inset wells, table stripes */
+  --color-ink: #1a1815;          /* primary text        16.98:1 on paper */
+  --color-ink-muted: #5c574f;    /* secondary text       6.87:1 on paper */
+  --color-ink-subtle: #6e6961;   /* tertiary / meta      5.22:1 on paper */
+
+  --color-accent: #1f4e5f;       /* deep petrol          8.70:1 on paper */
+  --color-accent-strong: #143a47;
+  --color-accent-tint: #e7eff1;
+  --color-on-accent: #ffffff;    /* white on accent      9.08:1 */
+
+  --color-success: #2c6b4c;      /* buildable            6.07:1 on paper */
+  --color-success-tint: #e8f1eb;
+  --color-caution: #7a5410;      /* withheld / warning   6.49:1 on paper */
+  --color-caution-tint: #f8f0df;
+  --color-danger: #932f20;       /* errors               7.55:1 on paper */
+  --color-danger-tint: #fbebe8;
+
+  --color-border-subtle: #e2ded6;  /* decorative rules only */
+  --color-border: #d4cfc5;         /* panel edges */
+  --color-border-control: #8f8981; /* inputs, checkboxes  3.32:1 on paper */
+  --color-focus: #1f4e5f;
+
+  /* ------------------------------------------------------------------ type
+     One typeface (Geist) plus its monospace companion for part numbers and
+     quantities, where digits must align. Scale is a 1.25 fourth-root ramp
+     rounded to whole pixels so nothing lands on a half-pixel. */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Consolas,
+    monospace;
+
+  --text-xs: 0.75rem;     /* 12 — meta, legal */
+  --text-sm: 0.875rem;    /* 14 — dense UI, labels */
+  --text-base: 1rem;      /* 16 — body */
+  --text-lg: 1.1875rem;   /* 19 — lead paragraph, card titles */
+  --text-xl: 1.5rem;      /* 24 — section headings */
+  --text-2xl: 2rem;       /* 32 — page headings */
+  --text-3xl: 2.5rem;     /* 40 — the one display size */
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-normal: 1.6;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  --tracking-tight: -0.014em;
+  --tracking-wide: 0.06em;
+
+  /* --------------------------------------------------------------- spacing
+     4px base. Named by step, never used as raw pixels in a component. */
+  --space-1: 0.25rem;   /*  4 */
+  --space-2: 0.5rem;    /*  8 */
+  --space-3: 0.75rem;   /* 12 */
+  --space-4: 1rem;      /* 16 */
+  --space-5: 1.25rem;   /* 20 */
+  --space-6: 1.5rem;    /* 24 */
+  --space-7: 2rem;      /* 32 */
+  --space-8: 2.5rem;    /* 40 */
+  --space-9: 3.5rem;    /* 56 */
+  --space-10: 4.5rem;   /* 72 */
+
+  /* ---------------------------------------------------------------- shape */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  /* One elevation token, for overlays that genuinely float above the page
+     (the search listbox). Everything else is separated by a border. */
+  --shadow-overlay: 0 1px 2px rgb(26 24 21 / 6%), 0 8px 24px rgb(26 24 21 / 10%);
+
+  /* ---------------------------------------------------------------- layout */
+  --measure-page: 68rem;
+  --measure-prose: 36rem;
+  --control-height: 2.75rem;     /* 44px — comfortable touch target */
+  --control-height-sm: 2rem;
+
+  /* ---------------------------------------------------------------- motion */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
