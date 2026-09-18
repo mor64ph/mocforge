@@ -117,6 +117,14 @@ CDN bulk dumps and, where a live lookup is needed, the documented
 downloads are rate-limited to once per 24 hours in code, and no third-party MOC
 design is ingested, stored or used as training data.
 
+## License
+
+The code in this repository is MIT licensed — see [LICENSE](LICENSE).
+
+That covers this project's own source only. The Rebrickable catalogue and the
+LDraw parts library are not redistributed here and remain under their own
+respective terms; the MIT grant does not extend to either.
+
 ## Attribution
 
 Catalogue data from [Rebrickable](https://rebrickable.com/). Part geometry from
