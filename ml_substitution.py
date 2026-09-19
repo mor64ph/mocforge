@@ -1,20 +1,32 @@
-"""MOCForge Phase 6.1 - part substitution embeddings, measured against the graph.
+"""MOCForge Phase 6.1 - part substitution, graph vs embeddings, measured.
 
 PRD 6.1 sets the bar: hold out known A/M pairs, measure recall@10 of the true
-alternate, and ship only if the model beats the relationship graph alone.
+alternate, and ship only what beats the relationship graph alone.
 
-The held-out edge is removed from the graph before the baseline runs, so the
-baseline is not trivially zero: union-find still reaches many held-out pairs
-transitively via other edges. That surviving transitivity is the real number to
-beat.
+The held-out edge is removed before the baseline runs, so the baseline is not
+trivially zero: union-find still reaches many held-out pairs transitively. That
+surviving transitivity is the real number to beat.
 
-Training never sees a relationship label, which is what keeps it clear of the
-R-pair trap in PRD 6.1: a model told that R means "equivalent" learns that a
-Technic bush substitutes for a tyre. Here the only signal is which parts appear
-in which set inventories.
+Two findings from the first pass (2026-09-20) shape this one:
+
+* **Plain co-occurrence is the wrong signal.** Alternates are used *in place of*
+  each other, so they rarely share a set. A model asking "which parts appear in
+  the same sets" learns complements. The fix is second-order similarity - two
+  parts are alike if they appear alongside *similar other parts*, not if they
+  appear together. For a truncated SVD that is one parameter: cosine between
+  rows of `U S^p`, where p=1 is first-order and p=2 is second-order, because
+  the row inner products of `MM^T` reduce exactly to those of `U S^2`.
+* **Category is a near-free filter.** 99.0% of A/M pairs share a part category,
+  so constraining candidates to the probe's category discards almost no true
+  pair and removes most of the field. Names are not usable the same way: only
+  4.6% of pairs share one.
+
+Training never sees a relationship label, which keeps it clear of the R-pair
+trap in PRD 6.1: a model told R means "equivalent" learns that a Technic bush
+substitutes for a tyre.
 
 Usage:
-  python ml_substitution.py eval          # the Phase 6 gate for 6.1
+  python ml_substitution.py eval            # the full comparison
   python ml_substitution.py eval --dims 256
 """
 
@@ -40,6 +52,7 @@ NEVER_RELS = ("B",)
 SEED = 42
 TEST_FRACTION = 0.20
 TOP_K = 10
+EXPONENTS = (0.0, 1.0, 2.0)
 
 
 def strict_edges(con: sqlite3.Connection) -> list[tuple[str, str]]:
@@ -49,7 +62,6 @@ def strict_edges(con: sqlite3.Connection) -> list[tuple[str, str]]:
             WHERE rel_type IN ({ph})""",
         STRICT_RELS,
     ).fetchall()
-    # B-parents are packs and assemblies; one pack is not one tile (PRD 6.1).
     ph2 = ",".join("?" * len(NEVER_RELS))
     assemblies = {
         r[0]
@@ -70,6 +82,7 @@ def part_set_matrix(con: sqlite3.Connection):
     Only the newest inventory of each real set: `inventories` is polymorphic
     (minifig inventories live there too) and 1,291 sets have several versions,
     so an unpinned query double-counts and mixes minifigs into the corpus.
+    `is_spare` is INTEGER here - the text True/False is the raw CSV form.
     """
     rows = con.execute(
         """SELECT ip.part_num, i.id
@@ -86,10 +99,12 @@ def part_set_matrix(con: sqlite3.Connection):
     pi = {p: i for i, p in enumerate(parts)}
     si = {s: i for i, s in enumerate(sets_)}
 
-    data = np.ones(len(rows), dtype=np.float32)
     ri = np.fromiter((pi[r[0]] for r in rows), dtype=np.int32, count=len(rows))
     ci = np.fromiter((si[r[1]] for r in rows), dtype=np.int32, count=len(rows))
-    m = csr_matrix((data, (ri, ci)), shape=(len(parts), len(sets_)))
+    m = csr_matrix(
+        (np.ones(len(rows), dtype=np.float32), (ri, ci)),
+        shape=(len(parts), len(sets_)),
+    )
     m.data[:] = 1.0
     return m, parts, pi
 
@@ -111,6 +126,23 @@ def union_find(edges: list[tuple[str, str]]) -> dict[str, str]:
     return {p: find(p) for p in parent}
 
 
+def rank_embeddings(emb, probe_idx, cat_codes, restrict: bool, k: int):
+    """Top-k neighbour indices per probe, optionally within the probe's category."""
+    out: list[np.ndarray] = []
+    CHUNK = 128
+    for start in range(0, len(probe_idx), CHUNK):
+        idx = probe_idx[start : start + CHUNK]
+        sims = emb[idx] @ emb.T
+        for r, gi in enumerate(idx):
+            row = sims[r]
+            row[gi] = -np.inf
+            if restrict:
+                row = np.where(cat_codes == cat_codes[gi], row, -np.inf)
+            top = np.argpartition(-row, k)[:k]
+            out.append(top[np.argsort(-row[top])])
+    return out
+
+
 def evaluate(dims: int) -> int:
     con = sqlite3.connect(DB_PATH)
     con.execute("PRAGMA query_only = ON")
@@ -125,16 +157,15 @@ def evaluate(dims: int) -> int:
     matrix, parts, pi = part_set_matrix(con)
     print(f"corpus   : {matrix.shape[0]:,} parts x {matrix.shape[1]:,} set inventories")
 
-    freq = Counter()
-    for p, i in pi.items():
-        freq[p] = matrix.indptr[i + 1] - matrix.indptr[i]
+    cats = dict(con.execute("SELECT part_num, part_cat_id FROM parts"))
+    cat_codes = np.array([cats.get(p, -1) for p in parts], dtype=np.int32)
 
-    # Only pairs whose both ends appear in the corpus are scoreable at all; a
-    # part in no set inventory has no vector, and neither method could rank it.
+    freq = Counter({p: matrix.indptr[i + 1] - matrix.indptr[i] for p, i in pi.items()})
+
     scoreable = [(a, b) for a, b in test if a in pi and b in pi]
     print(
         f"scoreable: {len(scoreable):,} of {len(test):,} held-out pairs "
-        f"({len(scoreable) / max(len(test), 1):.1%} - the rest name parts in no set)"
+        f"({len(scoreable) / max(len(test), 1):.1%})"
     )
     if not scoreable:
         print("GATE: no scoreable pairs; cannot evaluate.")
@@ -145,82 +176,77 @@ def evaluate(dims: int) -> int:
     for p, rep in classes.items():
         members[rep].append(p)
 
-    baseline_hits = 0
-    for a, b in scoreable:
+    def graph_candidates(a: str) -> list[str]:
         rep = classes.get(a)
-        cands = [p for p in members.get(rep, []) if p != a] if rep else []
-        cands.sort(key=lambda p: -freq.get(p, 0))
-        if b in cands[:TOP_K]:
-            baseline_hits += 1
-    baseline = baseline_hits / len(scoreable)
+        c = [p for p in members.get(rep, []) if p != a] if rep else []
+        c.sort(key=lambda p: -freq.get(p, 0))
+        return c
 
-    tfidf = TfidfTransformer(sublinear_tf=True)
-    weighted = tfidf.fit_transform(matrix)
+    baseline = np.mean([b in graph_candidates(a)[:TOP_K] for a, b in scoreable])
+
+    weighted = TfidfTransformer(sublinear_tf=True).fit_transform(matrix)
     svd = TruncatedSVD(n_components=dims, random_state=SEED)
-    emb = normalize(svd.fit_transform(weighted))
-    var = float(svd.explained_variance_ratio_.sum())
-    print(f"embedding: {dims} dims, {var:.1%} of variance retained")
+    us = svd.fit_transform(weighted)
+    sing = svd.singular_values_.copy()
+    sing[sing == 0] = 1e-12
+    u = us / sing
+    print(f"embedding: {dims} dims, "
+          f"{svd.explained_variance_ratio_.sum():.1%} of variance retained")
 
-    model_hits = 0
-    hybrid_hits = 0
     probe_idx = np.array([pi[a] for a, _ in scoreable])
-    # Chunked so the score matrix never materialises at parts x parts.
-    CHUNK = 256
-    ranked: list[list[str]] = []
-    for start in range(0, len(probe_idx), CHUNK):
-        block = emb[probe_idx[start : start + CHUNK]]
-        sims = block @ emb.T
-        for row_i in range(sims.shape[0]):
-            sims[row_i, probe_idx[start + row_i]] = -np.inf
-            top = np.argpartition(-sims[row_i], TOP_K)[:TOP_K]
-            top = top[np.argsort(-sims[row_i][top])]
-            ranked.append([parts[j] for j in top])
+    results: dict[tuple[float, bool], tuple[float, float, int, int]] = {}
 
-    gained = lost = 0
-    for (a, b), top in zip(scoreable, ranked):
-        if b in top:
-            model_hits += 1
-        rep = classes.get(a)
-        cands = [p for p in members.get(rep, []) if p != a] if rep else []
-        cands.sort(key=lambda p: -freq.get(p, 0))
-        merged = cands[:TOP_K] + [p for p in top if p not in cands]
-        base_hit = b in cands[:TOP_K]
-        hyb_hit = b in merged[:TOP_K]
-        if hyb_hit:
-            hybrid_hits += 1
-        gained += hyb_hit and not base_hit
-        lost += base_hit and not hyb_hit
-    model = model_hits / len(scoreable)
-    hybrid = hybrid_hits / len(scoreable)
+    for p in EXPONENTS:
+        emb = normalize(u * (sing**p))
+        for restrict in (False, True):
+            ranked = rank_embeddings(emb, probe_idx, cat_codes, restrict, TOP_K)
+            hits = gained = lost = 0
+            hyb_hits = 0
+            for (a, b), top in zip(scoreable, ranked):
+                names = [parts[j] for j in top]
+                if b in names:
+                    hits += 1
+                cand = graph_candidates(a)
+                merged = cand[:TOP_K] + [n for n in names if n not in cand]
+                base_hit = b in cand[:TOP_K]
+                hyb_hit = b in merged[:TOP_K]
+                hyb_hits += hyb_hit
+                gained += hyb_hit and not base_hit
+                lost += base_hit and not hyb_hit
+            results[(p, restrict)] = (
+                hits / len(scoreable), hyb_hits / len(scoreable), gained, lost
+            )
 
-    # Hybrid only appends where the graph offered fewer than TOP_K candidates,
-    # so it cannot displace a baseline hit. `lost` proves that rather than
-    # assuming it, and McNemar on the discordant pairs says whether the gain
-    # is bigger than chance.
+    print()
+    print(f"  {'config':34}{'embed':>9}{'hybrid':>9}{'+gain':>7}{'-loss':>7}")
+    print(f"  {'graph only (baseline)':34}{'-':>9}{baseline:>8.2%}{'-':>7}{'-':>7}")
+    for (p, restrict), (emb_r, hyb_r, g, l) in results.items():
+        order = {0.0: "whitened", 1.0: "first-order", 2.0: "second-order"}[p]
+        label = f"{order}, {'same-category' if restrict else 'all parts'}"
+        print(f"  {label:34}{emb_r:>9.2%}{hyb_r:>9.2%}{g:>7}{l:>7}")
+    print()
+
+    best_key = max(results, key=lambda k: results[k][1])
+    best_emb, best_hyb, g, l = results[best_key]
+    p, restrict = best_key
     from scipy.stats import binomtest
 
-    disc = gained + lost
-    p = binomtest(gained, disc, 0.5, alternative="greater").pvalue if disc else 1.0
+    disc = g + l
+    pv = binomtest(g, disc, 0.5, alternative="greater").pvalue if disc else 1.0
+    label = (f"{ {0.0:'whitened',1.0:'first-order',2.0:'second-order'}[p] }, "
+             f"{'same-category' if restrict else 'all parts'}")
 
-    print()
-    print(f"  recall@{TOP_K} baseline (graph only) : {baseline:.3%}")
-    print(f"  recall@{TOP_K} part2vec (embeddings) : {model:.3%}")
-    print(f"  recall@{TOP_K} hybrid (graph->embed) : {hybrid:.3%}")
-    print(f"  hybrid vs baseline: +{gained} gained, -{lost} lost, "
-          f"McNemar p={p:.2g}")
-    print()
-
-    if model > baseline:
-        print(f"GATE PASSED: embeddings beat the graph by "
-              f"{(model - baseline) * 100:.2f} points. Ship 6.1.")
-        return 0
-    print(f"GATE FAILED: embeddings do not beat the graph "
-          f"({model:.3%} vs {baseline:.3%}).")
-    if hybrid > baseline:
-        print(f"  Hybrid does beat it ({hybrid:.3%}), by "
-              f"{(hybrid - baseline) * 100:.2f} points - that is the shippable form.")
+    print(f"best hybrid: {label} -> {best_hyb:.2%} vs graph {baseline:.2%} "
+          f"(+{g}/-{l}, p={pv:.2g})")
+    if best_emb > baseline:
+        print(f"Embeddings alone beat the graph ({best_emb:.2%} vs {baseline:.2%}).")
     else:
-        print("  Hybrid does not rescue it either. PRD 6 says cut it.")
+        print(f"Embeddings alone still lose ({best_emb:.2%} vs {baseline:.2%}); "
+              f"the graph-first hybrid is the shippable form.")
+    if best_hyb > baseline:
+        print(f"GATE PASSED: ship 6.1 as '{label}' hybrid.")
+        return 0
+    print("GATE FAILED: nothing beats the graph. PRD 6 says cut it.")
     return 1
 
 

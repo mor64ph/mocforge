@@ -475,7 +475,93 @@ The `R` finding matters for 6.1: any part2vec model must not be trained treating
 
 **Note on framing:** three of these four models *support* generation; none of them *performs* it. Generation itself is constraint solving. That division is deliberate (see 3.1), not a limitation to be engineered away later.
 
-### 6.5 Measured results — 2026-09-20
+### 6.6 Optimisation pass — 2026-09-20
+
+The first pass measured the models as specified. This pass tried to make them
+better, and the two most useful results are both negative.
+
+**6.1 more than doubled, but not for the reason predicted.** The diagnosis was
+that co-occurrence finds complements, so the fix should be second-order
+similarity — comparing parts by the company they keep rather than by direct
+co-occurrence. For a truncated SVD that is one parameter, since the row inner
+products of `MM^T` reduce exactly to those of `U S^2`. **The sweep was flat:**
+17.66% whitened, 17.37% first-order, 17.37% second-order. The hypothesis was
+wrong.
+
+What actually worked was a deterministic filter. **99.0% of A/M pairs share a
+part category** (names do not: only 4.6% match), so restricting candidates to
+the probe's own category discards almost no true pair and removes most of the
+field. That single constraint lifted embeddings from 5.69% to 17.66% and the
+hybrid from 20.06% to **31.44%** — +54 gained, 0 lost, p = 5.6e-17, and just
+over twice the graph baseline. Embeddings now clear the graph standalone too
+(17.66% vs 15.27%), so 6.1 passes its literal PRD gate rather than only as a
+hybrid.
+
+| 6.1 config | embeddings | hybrid |
+|---|---|---|
+| graph only (baseline) | — | 15.27% |
+| whitened, all parts | 5.69% | 20.06% |
+| **whitened, same-category** | **17.66%** | **31.44%** |
+| second-order, same-category | 17.37% | 30.54% |
+
+**6.2 got much stronger and must still be cut.** With 300 sets instead of 80 and
+all 33 role families instead of a hand-picked 10, precision at 95% recall went
+from 47.0% to **68.8%**, against 28.0% for "run everything" and 32.9% for the
+best single-feature rule (`structural_area >= 89`). By every statistical
+measure it earns its place.
+
+Then it was integrated behind `suggest --fast` and measured end to end, where
+it ran **3.5× slower**. The breakdown explains why, and invalidates the premise
+of 6.2 as written:
+
+| Step | Cost |
+|---|---|
+| sklearn import + model load | 13.49s |
+| `Taxonomy.profile()` — the "cheap" features | 4.25s |
+| 13 predictions | 2.53s |
+| **All 13 fits, cold (the work being skipped)** | **3.95s** |
+| All 13 fits, geometry already warm | 0.14s |
+
+**The tiler is not expensive.** Tiling every archetype costs 3.95s cold and
+0.14s warm; the predictor's features cost 4.25s because `profile()` loads the
+same geometry the tiler needs. The model cannot pay for itself: its inputs are
+dearer than its output, and no threshold changes that. Even inside the warm API
+process, prediction costs 2.53s to avoid 0.14s of tiling. The `--fast` flag was
+removed; `generate.py` carries a comment so it is not re-added. The model and
+its evaluation stay, because the finding is worth keeping.
+
+This is the same lesson PRD 5 already recorded once — speculative code that
+never earns its keep is a liability — arrived at from the other direction: here
+the code worked perfectly and the *problem* was imaginary.
+
+**6.3 tripled, and the largest single cause was a bad model choice of mine.**
+Top-3 went from 26.65% to **79.05%**. The ablation separates the reasons, and
+they are not the ones expected:
+
+| 6.3 configuration | top-3 | top-1 |
+|---|---|---|
+| 3 commonest themes (baseline) | 14.32% | — |
+| colour only, boosted trees *(first pass)* | 26.65% | 14.13% |
+| colour only, multinomial logistic | **57.62%** | 37.25% |
+| colour + shape | 76.75% | 57.37% |
+| **colour + shape + year** | **79.05%** | **59.93%** |
+
+On *identical* colour-only features, swapping a histogram GBDT for multinomial
+logistic regression took 26.65% to 57.62%. A boosted ensemble fits one tree per
+class per iteration, so at 136 classes it is both far slower and worse on dense
+histogram features — the first pass measured the algorithm, not the data.
+
+Adding a **shape histogram over the 76 part categories** is the real feature
+win, +19.1 points. It needs no geometry, so unlike the role taxonomy it scales
+to every set in the catalogue. Year adds only 2.3 points, which settles a
+fairness question: an inventory of unknown vintage loses almost nothing, so the
+result does not depend on a feature a real user might not have.
+
+At 79.05% top-3 this is now good enough to bias a palette suggestion with
+confidence. The PRD's second 6.3 criterion, human review of palette
+plausibility, is still not done.
+
+### 6.5 First measurement — 2026-09-20
 
 Every model was run against the baseline it had to beat. Two passed, one passed
 only in a form the PRD did not anticipate, and one could not be evaluated at all.
@@ -528,7 +614,7 @@ Each phase has an exit gate. **Do not begin a phase until the prior gate passes.
 | **3. Geometry ingest** | LDraw parsed, mapped to Rebrickable part numbers, coverage measured | **At least 80% of parts in the top 500 sets have geometry.** If coverage is below this, the generator cannot work and the project must stop and re-plan — see RISK-1 | ✅ **PASSED** 2026-09-17 — 8 fixtures, and 147/150 lots of 42151-1 parse in 2.8s (`ldraw.py selftest`) |
 | **4. Generation engine** | Template library, tiler, stability filter, build order | 20 hand-reviewed builds: all physically buildable, verified by actually building 3 of them | ◐ **7 templates / 13 archetypes** (added `technic_frame` 2026-09-18); brick box 7/13 served, Bugatti 8/13 served, all at confidence 1.000. 156 designs across 31 inventories, 0 inventory-subset violations (selftest gate). Physical build check still outstanding — this is the gate's remaining requirement. **Prepared 2026-09-20:** 47 builds at confidence 1.000 across 7 inventories (the "20 hand-reviewed" count, with margin) and 4 instruction packs exported to `out/physical-gate/`. See `PHYSICAL_GATE.md`. The gate stays open until someone builds them |
 | **5. Web app** | Questionnaire, results, instruction viewer | End to end: real inventory in, buildable instructions out | ✅ **PASSED** 2026-09-20 — the 8 live integration tests ran against a real uvicorn service for the first time and all pass (905/150 confirmed over the wire, real zip pack, typed errors). CORS separately verified by preflight from `http://localhost:3000`, which no Node test can catch |
-| **6. ML layer** | The four models in section 6 | Each beats its deterministic baseline, or is cut | ◐ **2026-09-20: two ship, one ships only as a hybrid, one is blocked.** See 6.5 below |
+| **6. ML layer** | The four models in section 6 | Each beats its deterministic baseline, or is cut | ◐ **2026-09-20, after an optimisation pass: 6.1 ships (31.44%, 2.1x the graph), 6.3 ships (79.05% top-3, 5.5x frequency), 6.2 is cut on product grounds despite passing statistically, 6.4 is blocked for want of a label.** See 6.6, then 6.5 |
 
 Phase 3 is the real gate. Phases 1–2 are a few days of unglamorous, reliable work. Phase 4 is where projects like this die.
 

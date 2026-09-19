@@ -1907,6 +1907,11 @@ def main(argv: list[str]) -> int:
         # The product behaviour: try every archetype against the inventory and
         # return the ones that actually work, best first. Anything that fails
         # validation is withheld, never shown.
+        # No feasibility pre-filter here, and that is a measured decision, not
+        # an omission: see PRD 6.5. The Phase 6.2 predictor is statistically
+        # strong but cannot pay for itself, because its features come from
+        # Taxonomy.profile(), which loads the same geometry the tiler needs.
+        # Profiling costs 4.25s against 3.95s to simply tile all 13 archetypes.
         sets = argv[1:]
         cat, lib = Catalogue(), LDrawLibrary()
         lots = cat.combine(*sets)
