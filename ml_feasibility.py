@@ -5,17 +5,27 @@ are hopeless and skip them. The metric is precision at 95% recall, and the
 recall side is the one that matters - filtering out a feasible build is a
 design the user never sees, which is far worse than a wasted tiler run.
 
-The deterministic baseline is "run everything": 100% recall, and precision
-equal to the base rate of feasible pairs. A model earns its place only by
-lifting precision above that base rate while still keeping 95% of the builds.
+**This model is cut. The file is kept because the finding is worth keeping.**
 
-Labels are self-generating: run the real fitter over sampled pairs and record
-what it actually did. Features are the cheap inventory profile from roles.py
-plus the archetype - deliberately everything you can know *without* tiling,
-since a feature that needs the tiler defeats the purpose.
+It passes its statistical gate comfortably: 68.8% precision at 95% recall,
+against 28.0% for running everything and 32.9% for the best single-feature
+rule. It is still cut, because the premise above is false. Tiling all 13
+archetypes costs 3.95s cold and 0.14s warm, while the features here cost 4.25s
+to compute - `Taxonomy.profile()` loads the same geometry the tiler needs - on
+top of 13.49s to import sklearn. Wired in behind a flag it ran 3.5x slower.
+The inputs are dearer than the output and no threshold changes that.
+
+So do not re-add a feasibility pre-filter on the strength of the accuracy
+numbers alone. Re-time the tiler first; only a genuinely cheap feature path
+(one that does not need geometry) could change the conclusion.
+
+Two baselines are reported, because "run everything" is trivially beaten: the
+base rate, and the best single feature-and-threshold rule chosen on train. A
+model only earns its complexity by clearing the second.
 
 Usage:
-  python ml_feasibility.py sample --sets 80    # build the label set (slow)
+  python ml_feasibility.py sample --sets 300   # label set; slow, runs the tiler
+  python ml_feasibility.py refeature           # new features, no re-tiling
   python ml_feasibility.py eval
 """
 
@@ -114,9 +124,10 @@ def sample(n_sets: int) -> int:
 def refeature() -> int:
     """Recompute features for existing labels without re-running the tiler.
 
-    The labels are the expensive half - each one is a real fit. Features are a
-    cheap profile, so changing the feature set must never cost another tiling
-    pass.
+    Labels are the irreplaceable half - each one is a real fit - so changing
+    the feature set must never cost another tiling pass. Profiling is not
+    cheap in absolute terms (4.25s a set; that is the finding that cut this
+    model), but it is cheap next to re-labelling.
     """
     from inventory import Catalogue
     from ldraw import LDrawLibrary
@@ -159,87 +170,6 @@ def refeature() -> int:
             n += 1
     print(f"rewrote {n} rows with {len(FAMILIES)} families -> {DATA}")
     return 0
-
-
-MODEL = ROOT / "data" / "feasibility_model.joblib"
-
-
-def _design_matrix(rows, templates, feat_names):
-    return np.array([
-        [r[k] for k in feat_names]
-        + [1.0 if r["template"] == t else 0.0 for t in templates]
-        for r in rows
-    ], dtype=np.float32)
-
-
-def train(threshold: float) -> int:
-    """Fit on every labelled pair and persist, for `generate.py suggest --fast`.
-
-    The threshold is stored with the model because it, not the model, is what
-    encodes the 95%-recall promise; a caller that picked its own would silently
-    change how many real designs get discarded.
-    """
-    import joblib
-    from sklearn.ensemble import HistGradientBoostingClassifier
-
-    rows = [json.loads(l) for l in DATA.read_text(encoding="utf-8").splitlines() if l]
-    templates = sorted({r["template"] for r in rows})
-    feat_names = [k for k in rows[0]
-                  if k not in ("set_num", "archetype", "template", "feasible")]
-    X = _design_matrix(rows, templates, feat_names)
-    y = np.array([r["feasible"] for r in rows], dtype=bool)
-
-    clf = HistGradientBoostingClassifier(random_state=SEED, max_iter=300)
-    clf.fit(X, y)
-    joblib.dump(
-        {"model": clf, "templates": templates, "features": feat_names,
-         "threshold": threshold, "families": list(FAMILIES)},
-        MODEL,
-    )
-    print(f"trained on {len(y):,} pairs -> {MODEL} (threshold {threshold:.3g})")
-    return 0
-
-
-class Predictor:
-    """Optional accelerator: skip archetypes that are almost certainly hopeless.
-
-    Deliberately fails open. If sklearn or the artifact is missing, `feasible`
-    answers True for everything and the caller tiles exactly as it always did,
-    because a missing model must cost speed, never designs.
-    """
-
-    def __init__(self, path: Path = MODEL):
-        self.ok = False
-        try:
-            import joblib
-
-            blob = joblib.load(path)
-        except Exception:
-            return
-        self.model = blob["model"]
-        self.templates = blob["templates"]
-        self.features = blob["features"]
-        self.threshold = blob["threshold"]
-        self.families = blob["families"]
-        self.ok = True
-
-    def feasible(self, profile, template: str) -> bool:
-        if not self.ok:
-            return True
-        feats = {
-            "pieces": profile.pieces,
-            "lots": profile.lots,
-            "geometry_pieces": profile.geometry_pieces,
-            "structural_area": profile.structural_area,
-        }
-        for fam in self.families:
-            feats[f"n_{fam}"] = profile.by_family.get(fam, 0)
-            feats[f"a_{fam}"] = profile.area_by_family.get(fam, 0)
-        row = [feats.get(k, 0) for k in self.features] + [
-            1.0 if template == t else 0.0 for t in self.templates
-        ]
-        p = self.model.predict_proba(np.array([row], dtype=np.float32))[0, 1]
-        return bool(p >= self.threshold)
 
 
 def _stump(Xtr, ytr, Xte, yte, target: float) -> tuple[float, str, int]:
@@ -340,9 +270,13 @@ def evaluate() -> int:
     print()
 
     if prec_at > max(te_base, stump_prec):
-        print(f"GATE PASSED: precision lifted {(prec_at - te_base) * 100:.1f} points "
-              f"over always-run and {(prec_at - stump_prec) * 100:.1f} over the best "
-              f"one-feature rule, skipping {saved:.0%} of tiler work. Ship 6.2.")
+        print(f"STATISTICAL GATE PASSED: precision lifted "
+              f"{(prec_at - te_base) * 100:.1f} points over always-run and "
+              f"{(prec_at - stump_prec) * 100:.1f} over the best one-feature rule, "
+              f"skipping {saved:.0%} of tiler work.")
+        print("PRODUCT VERDICT: still cut. The skipped work is worth 0.14s warm / "
+              "3.95s cold; these features cost 4.25s to compute. See the module "
+              "docstring before re-adding a pre-filter.")
         return 0
     if stump_prec >= prec_at:
         print(f"GATE FAILED for the model: a single rule ({stump_name}) matches or "
@@ -355,17 +289,13 @@ def evaluate() -> int:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("command", choices=["sample", "refeature", "train", "eval"])
+    ap.add_argument("command", choices=["sample", "refeature", "eval"])
     ap.add_argument("--sets", type=int, default=80)
-    ap.add_argument("--threshold", type=float, default=0.00798,
-                    help="score at or above which an archetype is tiled")
     args = ap.parse_args(argv)
     if args.command == "sample":
         return sample(args.sets)
     if args.command == "refeature":
         return refeature()
-    if args.command == "train":
-        return train(args.threshold)
     return evaluate()
 
 

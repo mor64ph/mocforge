@@ -8,4 +8,3 @@ __pycache__/
 .pytest_cache/
 out/
 data/feasibility.jsonl
-data/feasibility_model.joblib
