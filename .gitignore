@@ -8,3 +8,5 @@ __pycache__/
 .pytest_cache/
 out/
 data/feasibility.jsonl
+data/api/brickset_key.txt
+data/ages.json

@@ -33,19 +33,36 @@ gates cannot see it.
 
 ## Part 2 — the 3 to actually build
 
-Instruction packs are in `out/physical-gate/` (zip: PDF, per-step PNGs, `.ldr`).
-Each was chosen to exercise a *different* mechanism, so three builds cover the
-engine rather than testing one thing three times.
+**Scoped to 42151-1 (Bugatti Bolide), the only set owned.** An earlier draft of
+this worksheet used packs from 10696-1 as well; those were removed, because a
+model you cannot physically build tests nothing. All eight designs this
+inventory supports are exported to `out/physical-gate/` (zip: PDF, per-step
+PNGs, `.ldr`), so the choice below can be overridden.
+
+Build **three**, chosen to exercise three *different* mechanisms rather than
+one mechanism three times:
 
 | Pack | Pieces | Steps | What it puts at risk |
 |---|---|---|---|
-| `building-cottage_10696-1` | 102 | 8 | Wall courses and the roof tiler. Roof plates must **bear on opposite walls** — the bridging rule from PRD 5. The largest build, so the best test of cumulative drift. |
-| `sculpture-ziggurat_10696-1` | 70 | 5 | Stacked concentric layers and the support fraction. Each layer must sit stably on the one below with no overhang that tips. |
-| `studded_car_10696-1` | 9 | 4 | Wheel mounting and **seat direction** — a wheel on a holder pin seats outboard. Tiny, but it tests the one rule a plate stack never touches. |
-| `technic_frame-wide_42151-1` | 47 | 2 | *Optional fourth.* The newest archetype, least proven: rungs sit one beam-height above the rails on the strength of a zero-Y-overlap calculation. If any build is wrong, expect it to be this one. |
+| `technic_frame-wide` | 47 | 2 | **Build this one first.** Newest archetype (added 2026-09-18), never built. Rungs sit one beam-height above the rails purely on a zero-Y-overlap calculation, and the span relies on `MAX_SPAN = 12`. If any design is wrong, expect it to be this. |
+| `sculpture-ziggurat` | 24 | 3 | The only **non-Technic** mechanism this inventory supports: stacked plate layers and the support fraction. Each layer must sit stably with no overhang that tips. |
+| `technic_chassis` | 7 | 2 | Axle mounting and **seat direction** — a wheel on an axle seats inboard, unlike one on a holder pin. Also the ground-clearance warning from staggered front/rear wheel radii. |
+| `technic_crib-tower` | 14 | 3 | *Optional fourth.* Stacked beam-and-pin, distinct from the frame's rung-on-rail. Cheap to build if the first three go quickly. |
 
-A fourth is listed deliberately — `technic_frame` was added on 2026-09-18 and
-has never been built. If you only have appetite for three, swap out the car.
+**Two honest caveats about this inventory.**
+
+*These builds are small.* 7–47 pieces, because the Bugatti's 905 parts are
+spread across 150 lots with few duplicates, and the archetypes need matching
+parts. The best test of cumulative drift would have been the 102-piece cottage
+from 10696-1, which is not available here. A 7-piece chassis exercises a rule
+but not the accumulation of error across many steps, so this gate will be a
+*weaker* test than the PRD imagined. Worth recording alongside the result.
+
+*This costs you a built model.* 42151-1 is presumably assembled as the Bugatti.
+Every design here needs its beams, pins and axles, so closing this gate means
+taking it apart. That is a real price, and it is the reason to build
+`technic_frame-wide` first: if it fails, the finding is worth the teardown on
+its own, and the other two can wait.
 
 ## Part 3 — what to record
 
@@ -77,3 +94,5 @@ above maps to a specific rule, and a failure means that rule is wrong:
 | A piece falls off | `MIN_SUPPORT = 0.5`, or the bridge-test exemption |
 | A piece floats unattached | the connection rule (1.5 LDU in Y, >1.0 overlap in X and Z) |
 | A step is impossible to perform | build ordering, not geometry |
+| A rung sits at the wrong height | `technic_frame`'s `rung_level = rail_height / LDU_PER_PLATE` |
+| A part named in the PDF is not in the box | not geometry at all — the inventory algebra or the version pinning |
