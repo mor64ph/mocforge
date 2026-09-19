@@ -475,6 +475,46 @@ The `R` finding matters for 6.1: any part2vec model must not be trained treating
 
 **Note on framing:** three of these four models *support* generation; none of them *performs* it. Generation itself is constraint solving. That division is deliberate (see 3.1), not a limitation to be engineered away later.
 
+### 6.5 Measured results — 2026-09-20
+
+Every model was run against the baseline it had to beat. Two passed, one passed
+only in a form the PRD did not anticipate, and one could not be evaluated at all.
+Scripts: `ml_substitution.py`, `ml_feasibility.py`, `ml_style.py`.
+
+| Model | Baseline | Model | Verdict |
+|---|---|---|---|
+| 6.1 substitution | 15.27% recall@10 (graph) | **4.19%** (part2vec, 128d) / 5.69% (256d) | **Standalone CUT** |
+| 6.1 hybrid | 15.27% | **20.06%** (graph, then embeddings fill) | **Ship the hybrid** |
+| 6.2 feasibility | 23.7% precision (run everything) | **47.0%** at 95% recall | **Ship** |
+| 6.3 style/theme | 14.32% top-3 (3 commonest) | **26.65%** top-3 | **Ship** |
+| 6.4 difficulty | — | — | **Blocked: no label exists** |
+
+**6.1 — the embedding lost badly, and the reason matters.** part2vec scores
+4.19% against the graph's 15.27%, a third of the baseline. Co-occurrence is the
+wrong signal for substitution: two alternates of one mould are used *in place of*
+each other, so they rarely appear in the same set, and a model trained on "what
+appears together" learns complements, not substitutes. Raising dimensions to 256
+lifts it to 5.69% — still less than half the baseline, confirming this is
+structural rather than under-fitting.
+
+It survives only as a **fallback ranker**. Where the graph offers fewer than ten
+candidates, embeddings fill the remaining slots: **+16 pairs gained, 0 lost,
+McNemar p = 1.5e-05**. Zero losses is structural, not luck — the hybrid only
+appends into empty slots, so it cannot displace a baseline hit. That is a real
+31% relative gain, and it is the only shippable form.
+
+**6.4 cannot be built as specified.** Its metric is MAE against published age
+ratings, and the Rebrickable bulk dump has no age column: `sets` carries only
+`set_num, name, year, theme_id, num_parts, img_url`. There is no label to
+regress against. This is a planning error in this document, not a modelling
+failure — the data was assumed without being checked. Closing it needs a new
+source, and R1 forbids the obvious one (set pages are HTML).
+
+**Honest reading of 6.3.** It doubles its baseline, which is the gate, but 26.65%
+top-3 across 136 themes is modest in absolute terms. It is good enough to bias a
+palette suggestion and not good enough to state a theme as fact. The PRD also
+asked for human review of palette plausibility, which has not been done.
+
 ---
 
 ## 7. Roadmap and gates
@@ -486,9 +526,9 @@ Each phase has an exit gate. **Do not begin a phase until the prior gate passes.
 | **1. Data foundation** | SQLite catalogue, idempotent nightly ingest, R1/R2 enforced in code | Row counts match section 2 exactly; 42151-1 returns 905 parts / 150 lots; re-running ingest changes nothing | ✅ **PASSED** 2026-09-17 (`ingest.py verify`) |
 | **2. Inventory algebra** | Multiset ops, substitution closure, combined-set queries, read-only API | "What do I own across sets X, Y, Z" correct on hand-checked fixtures; equivalence closure has no cycles | ✅ **PASSED** 2026-09-17 — 14 checks, 3s (`inventory.py selftest`) |
 | **3. Geometry ingest** | LDraw parsed, mapped to Rebrickable part numbers, coverage measured | **At least 80% of parts in the top 500 sets have geometry.** If coverage is below this, the generator cannot work and the project must stop and re-plan — see RISK-1 | ✅ **PASSED** 2026-09-17 — 8 fixtures, and 147/150 lots of 42151-1 parse in 2.8s (`ldraw.py selftest`) |
-| **4. Generation engine** | Template library, tiler, stability filter, build order | 20 hand-reviewed builds: all physically buildable, verified by actually building 3 of them | ◐ **7 templates / 13 archetypes** (added `technic_frame` 2026-09-18); brick box 7/13 served, Bugatti 8/13 served, all at confidence 1.000. 156 designs across 31 inventories, 0 inventory-subset violations (selftest gate). Physical build check still outstanding — this is the gate's remaining requirement |
-| **5. Web app** | Questionnaire, results, instruction viewer | End to end: real inventory in, buildable instructions out |
-| **6. ML layer** | The four models in section 6 | Each beats its deterministic baseline, or is cut |
+| **4. Generation engine** | Template library, tiler, stability filter, build order | 20 hand-reviewed builds: all physically buildable, verified by actually building 3 of them | ◐ **7 templates / 13 archetypes** (added `technic_frame` 2026-09-18); brick box 7/13 served, Bugatti 8/13 served, all at confidence 1.000. 156 designs across 31 inventories, 0 inventory-subset violations (selftest gate). Physical build check still outstanding — this is the gate's remaining requirement. **Prepared 2026-09-20:** 47 builds at confidence 1.000 across 7 inventories (the "20 hand-reviewed" count, with margin) and 4 instruction packs exported to `out/physical-gate/`. See `PHYSICAL_GATE.md`. The gate stays open until someone builds them |
+| **5. Web app** | Questionnaire, results, instruction viewer | End to end: real inventory in, buildable instructions out | ✅ **PASSED** 2026-09-20 — the 8 live integration tests ran against a real uvicorn service for the first time and all pass (905/150 confirmed over the wire, real zip pack, typed errors). CORS separately verified by preflight from `http://localhost:3000`, which no Node test can catch |
+| **6. ML layer** | The four models in section 6 | Each beats its deterministic baseline, or is cut | ◐ **2026-09-20: two ship, one ships only as a hybrid, one is blocked.** See 6.5 below |
 
 Phase 3 is the real gate. Phases 1–2 are a few days of unglamorous, reliable work. Phase 4 is where projects like this die.
 
